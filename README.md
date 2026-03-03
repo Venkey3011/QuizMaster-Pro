@@ -51,8 +51,6 @@ React (Vite)
 
 TypeScript
 
-CSS / Tailwind (if used)
-
 Backend
 
 Node.js
