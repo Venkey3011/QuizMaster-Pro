@@ -1,62 +1,20 @@
-🎯 QuizMaster Pro
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-QuizMaster Pro is a full-stack quiz management system designed for conducting and managing quizzes efficiently. It includes an Admin panel for managing students and quizzes, and a User interface for participating in quizzes.
+# Run and deploy your AI Studio app
 
-Built with modern web technologies, this project supports authentication, real-time score calculation, and dynamic quiz management.
+This contains everything you need to run your app locally.
+
+View your app in AI Studio: https://ai.studio/apps/f3b9aaf3-c7b0-4904-9eba-4be293f6bbec
+
+## Run Locally
+
+**Prerequisites:**  Node.js
 
 
-🚀 Features
-👨‍💼 Admin Panel
-
-Admin login (default credentials configurable)
-
-Add, edit, and delete students
-
-Create and manage quizzes
-
-Add multiple questions with options
-
-Delete quiz with confirmation popup
-
-View student results and scores
-
-👨‍🎓 Student Panel
-
-Secure login using credentials provided by admin
-
-Attempt quizzes
-
-Real-time score calculation
-
-View final results after submission
-
-💻 System Features
-
-Responsive UI (works on desktop & mobile)
-
-Clean and modern interface
-
-Dynamic data handling
-
-REST API based backend
-
-Database integration (MongoDB / SQLite based on version)
-
-Production build supported
-
-🛠️ Tech Stack
-Frontend
-
-React (Vite)
-
-TypeScript
-
-Backend
-
-Node.js
-
-Express.js
-
-TypeScript
-
-Database (MongoDB Atlas / SQLite)
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

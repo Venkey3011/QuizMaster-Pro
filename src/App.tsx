@@ -25,7 +25,9 @@ import {
   Image as ImageIcon,
   Edit2,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -1119,6 +1121,8 @@ const QuestionBanksManagement = () => {
   const [newBankTitle, setNewBankTitle] = useState('');
   const [bankToDelete, setBankToDelete] = useState<QuestionBank | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUploadingBanks, setIsUploadingBanks] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -1132,6 +1136,107 @@ const QuestionBanksManagement = () => {
       setBanks(data);
     } catch (error) {
       console.error('Failed to fetch question banks:', error);
+    }
+  };
+
+  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+    const uploadData = async (banksData: any[]) => {
+      try {
+        const res = await fetch('/api/question-banks/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ banks: banksData })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          alert(`Successfully created ${data.createdBanks} banks with ${data.createdQuestions} questions.`);
+          fetchBanks();
+          setIsUploadingBanks(false);
+        } else {
+          alert(data.error || 'Failed to upload banks');
+        }
+      } catch (error) {
+        console.error('Upload API error:', error);
+        alert('Failed to upload banks.');
+      }
+    };
+
+    if (fileExtension === 'json') {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const json = JSON.parse(event.target?.result as string);
+          const banksData = Array.isArray(json) ? json : [json];
+          await uploadData(banksData);
+        } catch (error) {
+          console.error('Bulk upload error:', error);
+          alert('Invalid JSON file or upload failed.');
+        }
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.readAsText(file);
+    } else if (['xlsx', 'xls'].includes(fileExtension || '')) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const banksData: any[] = [];
+
+          workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            
+            if (jsonData.length === 0) return;
+
+            const questions = jsonData.map((row: any) => {
+              const qText = row['Question'] || row['question'];
+              const opt1 = row['Option 1'] || row['option1'];
+              const opt2 = row['Option 2'] || row['option2'];
+              const opt3 = row['Option 3'] || row['option3'];
+              const opt4 = row['Option 4'] || row['option4'];
+              const correct = row['Correct Answer'] || row['correct_answer'];
+              const image = row['Image URL'] || row['image_url'];
+
+              if (!qText || !opt1 || !opt2) return null;
+
+              return {
+                question_text: qText,
+                options: [opt1, opt2, opt3, opt4].filter(o => o !== undefined && o !== null && o !== '').map(String),
+                correct_option_index: (parseInt(correct) - 1) || 0,
+                image_url: image || ''
+              };
+            }).filter(q => q !== null);
+
+            if (questions.length > 0) {
+              banksData.push({
+                title: sheetName,
+                questions
+              });
+            }
+          });
+
+          if (banksData.length === 0) {
+            alert('No valid data found in Excel file.');
+          } else {
+            await uploadData(banksData);
+          }
+        } catch (error) {
+          console.error('Excel upload error:', error);
+          alert('Failed to process Excel file.');
+        }
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      alert('Unsupported file type. Please upload .json, .xlsx, or .xls');
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -1175,6 +1280,19 @@ const QuestionBanksManagement = () => {
     }
   };
 
+  const handleDownloadTemplate = () => {
+    const headers = [
+      ['Question', 'Option 1', 'Option 2', 'Option 3', 'Option 4', 'Correct Answer', 'Image URL'],
+      ['What is the capital of France?', 'London', 'Berlin', 'Paris', 'Madrid', '3', ''],
+      ['Which planet is known as the Red Planet?', 'Mars', 'Venus', 'Jupiter', 'Saturn', '1', '']
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(headers);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.writeFile(wb, "question_bank_template.xlsx");
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -1182,17 +1300,40 @@ const QuestionBanksManagement = () => {
           <Database className="w-5 h-5 text-indigo-600" />
           Question Banks
         </h2>
-        <button 
-          onClick={() => {
-            setIsCreating(true);
-            setEditingBankId(null);
-            setNewBankTitle('');
-          }}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-all shadow-sm"
-        >
-          <PlusCircle className="w-4 h-4" />
-          Create Bank
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={handleDownloadTemplate}
+            className="flex items-center gap-2 bg-zinc-100 text-zinc-600 px-4 py-2 rounded-lg font-medium hover:bg-zinc-200 transition-all shadow-sm"
+          >
+            <Download className="w-4 h-4" />
+            Template
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleBulkUpload}
+            className="hidden"
+            accept=".json, .xlsx, .xls"
+          />
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-700 transition-all shadow-sm"
+          >
+            <Upload className="w-4 h-4" />
+            Bulk Upload
+          </button>
+          <button 
+            onClick={() => {
+              setIsCreating(true);
+              setEditingBankId(null);
+              setNewBankTitle('');
+            }}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-all shadow-sm"
+          >
+            <PlusCircle className="w-4 h-4" />
+            Create Bank
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2457,10 +2598,19 @@ const StudentDashboard = ({ student }: { student: User }) => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900">Welcome, {student.username}</h1>
-          <p className="text-zinc-500">Available tests for batch: <span className="font-bold text-indigo-600">{student.batch}</span></p>
+          <div className="mt-2 space-y-1">
+            <p className="text-zinc-500 flex items-center gap-2">
+              <span className="font-medium">Register No:</span> 
+              <span className="font-mono font-bold text-zinc-900 bg-zinc-100 px-2 py-0.5 rounded">{student.student_id || 'N/A'}</span>
+            </p>
+            <p className="text-zinc-500 flex items-center gap-2">
+              <span className="font-medium">Batch:</span> 
+              <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{student.batch}</span>
+            </p>
+          </div>
         </div>
         <button 
           onClick={fetchData}
@@ -2472,80 +2622,141 @@ const StudentDashboard = ({ student }: { student: User }) => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {tests.map(test => {
-          const result = getResultForTest(test.id);
-          const isCompleted = !!result;
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="lg:col-span-3 space-y-6">
+          <h2 className="text-xl font-bold text-zinc-900 flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-indigo-600" />
+            Available Tests
+          </h2>
+          
+          {tests.length === 0 ? (
+            <div className="py-12 text-center bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-2xl">
+              <p className="text-zinc-500">No tests are currently available for your batch.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {tests.map(test => {
+                const result = getResultForTest(test.id);
+                const isCompleted = !!result;
 
-          return (
-            <motion.div 
-              key={test.id}
-              whileHover={{ y: -4 }}
-              className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all flex flex-col"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className={cn(
-                  "p-2 rounded-lg",
-                  isCompleted ? "bg-emerald-50" : "bg-indigo-50"
-                )}>
-                  {isCompleted ? (
-                    <CheckCircle2 className="w-6 h-6 text-emerald-600" />
-                  ) : (
-                    <ClipboardList className="w-6 h-6 text-indigo-600" />
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-400 bg-zinc-50 px-2 py-1 rounded-full">
-                  <Clock className="w-3 h-3" />
-                  <span>{test.duration_minutes}m</span>
-                </div>
-              </div>
-              <h3 className="text-xl font-bold text-zinc-900 mb-2">{test.title}</h3>
-              {test.negative_marks === 1 && (
-                <div className="flex items-center gap-1 text-[10px] font-bold text-red-600 uppercase tracking-wider mb-2">
-                  <XCircle className="w-3 h-3" /> Negative Marking Enabled
-                </div>
-              )}
-              <p className="text-zinc-500 text-sm mb-6 flex-grow">{test.description}</p>
-              
-              {isCompleted ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                    <span className="text-sm font-medium text-emerald-700">Total Score</span>
-                    <span className="text-sm font-bold text-emerald-700">{result.score}</span>
-                  </div>
-                  <button 
-                    onClick={() => navigate(`/student/results/${test.id}`)}
-                    className="w-full bg-emerald-600 text-white py-2.5 rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-sm flex items-center justify-center gap-2"
+                return (
+                  <motion.div 
+                    key={test.id}
+                    whileHover={{ y: -4 }}
+                    className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all flex flex-col"
                   >
-                    View Results <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <button 
-                  onClick={() => navigate(`/student/test/${test.id}`)}
-                  className="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-sm flex items-center justify-center gap-2"
-                >
-                  Start Test <ChevronRight className="w-4 h-4" />
-                </button>
-              )}
-            </motion.div>
-          );
-        })}
-        {tests.length === 0 && (
-          <div className="col-span-full py-20 text-center bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-2xl">
-            <p className="text-zinc-400">No tests are currently available.</p>
+                    <div className="flex justify-between items-start mb-4">
+                      <div className={cn(
+                        "p-2 rounded-lg",
+                        isCompleted ? "bg-emerald-50" : "bg-indigo-50"
+                      )}>
+                        {isCompleted ? (
+                          <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                        ) : (
+                          <ClipboardList className="w-6 h-6 text-indigo-600" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-400 bg-zinc-50 px-2 py-1 rounded-full">
+                        <Clock className="w-3 h-3" />
+                        <span>{test.duration_minutes}m</span>
+                      </div>
+                    </div>
+                    <h3 className="text-xl font-bold text-zinc-900 mb-2">{test.title}</h3>
+                    {test.negative_marks === 1 && (
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-red-600 uppercase tracking-wider mb-2">
+                        <XCircle className="w-3 h-3" /> Negative Marking Enabled
+                      </div>
+                    )}
+                    <p className="text-zinc-500 text-sm mb-6 flex-grow">{test.description}</p>
+                    
+                    {isCompleted ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                          <span className="text-sm font-medium text-emerald-700">Total Score</span>
+                          <span className="text-sm font-bold text-emerald-700">{result.score}</span>
+                        </div>
+                        <button 
+                          onClick={() => navigate(`/student/results/${test.id}`)}
+                          className="w-full bg-emerald-600 text-white py-2.5 rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-sm flex items-center justify-center gap-2"
+                        >
+                          View Results <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => navigate(`/student/test/${test.id}`)}
+                        className="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-sm flex items-center justify-center gap-2"
+                      >
+                        Start Test <ChevronRight className="w-4 h-4" />
+                      </button>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-zinc-200 sticky top-8">
+            <h2 className="text-lg font-bold text-zinc-900 mb-4 flex items-center gap-2">
+              <Award className="w-5 h-5 text-amber-500" />
+              Recent Results
+            </h2>
+            
+            {results.length === 0 ? (
+              <div className="text-center py-8 text-zinc-400 text-sm bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
+                No results yet
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto pr-2 custom-scrollbar">
+                {results.map(result => (
+                  <div key={result.id} className="group p-3 rounded-xl hover:bg-zinc-50 transition-colors border border-transparent hover:border-zinc-200">
+                    <div className="flex justify-between items-start mb-1">
+                      <h3 className="font-medium text-zinc-900 text-sm line-clamp-2 leading-tight flex-1 mr-2">
+                        {result.test_title || 'Unknown Test'}
+                      </h3>
+                      <span className={cn(
+                        "text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap",
+                        result.score >= (result.total_questions / 2) ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                      )}>
+                        {result.score} / {result.total_questions}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-zinc-500 mt-2">
+                      <span>{new Date(result.completed_at).toLocaleDateString()}</span>
+                      <button 
+                        onClick={() => navigate(`/student/results/${result.test_id}`)}
+                        className="text-indigo-600 font-medium hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        View Details
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
+};
+
+const shuffleArray = <T,>(array: T[]): T[] => {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
 };
 
 const TestSession = ({ student }: { student: User }) => {
   const { id } = useParams();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [answers, setAnswers] = useState<Record<string, number>>({});
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [isFinished, setIsFinished] = useState(false);
   const [score, setScore] = useState(0);
@@ -2724,7 +2935,14 @@ const TestSession = ({ student }: { student: User }) => {
         return res.json();
       })
       .then(data => {
-        setQuestions(data);
+        const shuffled = data.map((q: Question) => ({
+          ...q,
+          options: shuffleArray((q.options || []).map((o, i) => ({
+            ...o,
+            option_index: o.option_index !== undefined ? o.option_index : i
+          })))
+        }));
+        setQuestions(shuffled);
         // Fetch test details for duration
         fetch('/api/tests')
           .then(res => {
@@ -3051,10 +3269,10 @@ const TestSession = ({ student }: { student: User }) => {
               {currentQ.options.map((opt, idx) => (
                 <button 
                   key={opt.id}
-                  onClick={() => setAnswers({...answers, [currentQ.id]: idx})}
+                  onClick={() => setAnswers({...answers, [currentQ.id]: opt.option_index})}
                   className={cn(
                     "w-full p-5 rounded-xl border-2 text-left transition-all flex items-center justify-between group",
-                    answers[currentQ.id] === idx 
+                    answers[currentQ.id] === opt.option_index 
                       ? "border-indigo-600 bg-indigo-50 text-indigo-900" 
                       : "border-zinc-100 hover:border-zinc-300 text-zinc-600 hover:bg-zinc-50"
                   )}
@@ -3062,13 +3280,13 @@ const TestSession = ({ student }: { student: User }) => {
                   <div className="flex items-center gap-4">
                     <span className={cn(
                       "w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm",
-                      answers[currentQ.id] === idx ? "bg-indigo-600 text-white" : "bg-zinc-100 text-zinc-500 group-hover:bg-zinc-200"
+                      answers[currentQ.id] === opt.option_index ? "bg-indigo-600 text-white" : "bg-zinc-100 text-zinc-500 group-hover:bg-zinc-200"
                     )}>
                       {String.fromCharCode(65 + idx)}
                     </span>
                     <span className="font-medium">{opt.option_text}</span>
                   </div>
-                  {answers[currentQ.id] === idx && <CheckCircle2 className="w-5 h-5 text-indigo-600" />}
+                  {answers[currentQ.id] === opt.option_index && <CheckCircle2 className="w-5 h-5 text-indigo-600" />}
                 </button>
               ))}
             </div>

@@ -384,6 +384,58 @@ async function startServer() {
       }
     });
 
+    app.post("/api/question-banks/bulk", async (req, res) => {
+      const { banks } = req.body;
+      if (!banks || !Array.isArray(banks)) {
+        return res.status(400).json({ error: "Invalid data format. Expected an array of banks." });
+      }
+
+      try {
+        let createdBanks = 0;
+        let createdQuestions = 0;
+
+        for (const bank of banks) {
+          if (!bank.title) continue;
+
+          // Create Bank
+          const bankResult = await db.collection("question_banks").insertOne({
+            title: bank.title,
+            created_at: new Date().toISOString()
+          });
+          const bankId = bankResult.insertedId.toString();
+          createdBanks++;
+
+          // Create Questions for this Bank
+          if (bank.questions && Array.isArray(bank.questions)) {
+            const questionsToInsert = bank.questions.map((q: any) => {
+              const formattedOptions = (q.options || []).map((opt: string, index: number) => ({
+                option_text: opt,
+                option_index: index
+              }));
+
+              return {
+                bank_id: bankId,
+                question_text: q.question_text,
+                correct_option_index: q.correct_option_index,
+                image_url: q.image_url || null,
+                options: formattedOptions
+              };
+            });
+
+            if (questionsToInsert.length > 0) {
+              await db.collection("bank_questions").insertMany(questionsToInsert);
+              createdQuestions += questionsToInsert.length;
+            }
+          }
+        }
+
+        res.json({ success: true, createdBanks, createdQuestions });
+      } catch (e: any) {
+        console.error("Bulk upload banks error:", e);
+        res.status(500).json({ error: e.message });
+      }
+    });
+
     app.delete("/api/question-banks/:id", async (req, res) => {
       const { id } = req.params;
       try {
@@ -618,7 +670,7 @@ async function startServer() {
       });
     }
 
-    app.listen(PORT, "0.0.0.0", () => {
+    app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {
